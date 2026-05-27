@@ -16,8 +16,16 @@ const DomainId = z
   .number()
   .int()
   .positive()
-  .describe("Numeric domain ID.");
+  .describe("Numeric domain ID returned by infomaniak_list_domains.");
 
+const ZoneSchema = z
+  .string()
+  .min(3)
+  .describe(
+    "DNS zone identifier. In the Infomaniak v2 API this is the FQDN of the zone (e.g. 'example.ch').",
+  );
+
+// Confirmed against developer.infomaniak.com (`/2/zones/{zone}/records`).
 const DnsRecordType = z.enum([
   "A",
   "AAAA",
@@ -28,8 +36,9 @@ const DnsRecordType = z.enum([
   "SRV",
   "CAA",
   "TLSA",
-  "PTR",
-  "ALIAS",
+  "DS",
+  "DNSKEY",
+  "SSHFP",
 ]);
 
 const ListDomainsInput = z
@@ -64,7 +73,7 @@ type SearchDomainArgs = z.infer<typeof SearchDomainInput>;
 
 const ListDnsRecordsInput = z
   .object({
-    domain_id: DomainId,
+    zone: ZoneSchema,
     response_format: ResponseFormatSchema,
   })
   .strict();
@@ -72,7 +81,7 @@ type ListDnsRecordsArgs = z.infer<typeof ListDnsRecordsInput>;
 
 const CreateDnsRecordInput = z
   .object({
-    domain_id: DomainId,
+    zone: ZoneSchema,
     type: DnsRecordType,
     source: z
       .string()
@@ -100,8 +109,8 @@ type CreateDnsRecordArgs = z.infer<typeof CreateDnsRecordInput>;
 
 const UpdateDnsRecordInput = z
   .object({
-    domain_id: DomainId,
-    record_id: z.number().int().positive().describe("DNS record ID."),
+    zone: ZoneSchema,
+    record: z.string().min(1).describe("Record identifier."),
     type: DnsRecordType.optional(),
     source: z.string().min(1).optional(),
     target: z.string().min(1).optional(),
@@ -114,8 +123,8 @@ type UpdateDnsRecordArgs = z.infer<typeof UpdateDnsRecordInput>;
 
 const DeleteDnsRecordInput = z
   .object({
-    domain_id: DomainId,
-    record_id: z.number().int().positive(),
+    zone: ZoneSchema,
+    record: z.string().min(1),
     confirm: z
       .boolean()
       .default(false)
@@ -125,12 +134,21 @@ const DeleteDnsRecordInput = z
   .strict();
 type DeleteDnsRecordArgs = z.infer<typeof DeleteDnsRecordInput>;
 
+const CheckDnsRecordInput = z
+  .object({
+    zone: ZoneSchema,
+    record: z.string().min(1),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+type CheckDnsRecordArgs = z.infer<typeof CheckDnsRecordInput>;
+
 export function register(server: McpServer, client: InfomaniakClient) {
   server.registerTool(
     "infomaniak_list_domains",
     {
       title: "List owned domains",
-      description: `List domain names owned by the user (paginated).
+      description: `List domain names owned by the user (paginated). Endpoint: GET /1/domain.
 
 Args:
   - account_id (number, optional).
@@ -177,7 +195,7 @@ Returns:
     "infomaniak_get_domain",
     {
       title: "Get one domain",
-      description: `Get details for a single domain by ID.
+      description: `Get details for a single domain by ID. Endpoint: GET /1/domain/{domain_id}.
 
 Args:
   - domain_id (number).
@@ -202,7 +220,7 @@ Args:
     "infomaniak_search_domain",
     {
       title: "Check domain availability and price",
-      description: `Check availability and pricing for one or several FQDNs.
+      description: `Check availability and pricing for one or several FQDNs. Endpoint: POST /1/domain/search.
 
 Args:
   - domains (string[], 1-20).
@@ -229,11 +247,13 @@ Returns:
   server.registerTool(
     "infomaniak_list_dns_records",
     {
-      title: "List DNS records for a domain",
-      description: `List DNS records for a domain.
+      title: "List DNS records for a zone",
+      description: `List DNS records for a zone. Endpoint: GET /2/zones/{zone}/records.
+
+The {zone} parameter is the FQDN of the zone (e.g. 'example.ch'), not the numeric domain ID. Look up the FQDN via infomaniak_list_domains.
 
 Args:
-  - domain_id (number).
+  - zone (string): zone FQDN.
   - response_format ('markdown'|'json').`,
       inputSchema: ListDnsRecordsInput.shape,
       annotations: {
@@ -243,11 +263,12 @@ Args:
         openWorldHint: true,
       },
     },
-    async ({ domain_id, response_format }: ListDnsRecordsArgs) =>
+    async ({ zone, response_format }: ListDnsRecordsArgs) =>
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `DNS records for domain ${domain_id}`,
-        () => client.request("GET", `/1/domain/${domain_id}/dns/record`),
+        `DNS records for ${zone}`,
+        () =>
+          client.request("GET", `/2/zones/${encodeURIComponent(zone)}/records`),
       ),
   );
 
@@ -255,11 +276,11 @@ Args:
     "infomaniak_create_dns_record",
     {
       title: "Create a DNS record",
-      description: `Create a DNS record on a domain.
+      description: `Create a DNS record on a zone. Endpoint: POST /2/zones/{zone}/records.
 
 Args:
-  - domain_id (number).
-  - type ('A'|'AAAA'|'CNAME'|'MX'|'TXT'|'NS'|'SRV'|'CAA'|'TLSA'|'PTR'|'ALIAS').
+  - zone (string): zone FQDN, e.g. 'example.ch'.
+  - type ('A'|'AAAA'|'CNAME'|'MX'|'TXT'|'NS'|'SRV'|'CAA'|'TLSA'|'DS'|'DNSKEY'|'SSHFP').
   - source (string): sub-domain part. '@' for apex, '*' for wildcard.
   - target (string): record value.
   - ttl (number, optional): seconds, 60-86400.
@@ -274,7 +295,7 @@ Args:
       },
     },
     async ({
-      domain_id,
+      zone,
       type,
       source,
       target,
@@ -284,11 +305,13 @@ Args:
     }: CreateDnsRecordArgs) =>
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `Create DNS record on domain ${domain_id}`,
+        `Create DNS record in ${zone}`,
         () =>
-          client.request("POST", `/1/domain/${domain_id}/dns/record`, {
-            body: { type, source, target, ttl, priority },
-          }),
+          client.request(
+            "POST",
+            `/2/zones/${encodeURIComponent(zone)}/records`,
+            { body: { type, source, target, ttl, priority } },
+          ),
       ),
   );
 
@@ -296,11 +319,11 @@ Args:
     "infomaniak_update_dns_record",
     {
       title: "Update a DNS record",
-      description: `Update an existing DNS record. All fields except domain_id and record_id are optional; supply only those you want to change.
+      description: `Update an existing DNS record. Endpoint: PUT /2/zones/{zone}/records/{record}. Supply only the fields to change.
 
 Args:
-  - domain_id (number).
-  - record_id (number).
+  - zone (string): zone FQDN.
+  - record (string): record identifier (returned by list_dns_records).
   - type, source, target, ttl, priority: optional patches.
   - response_format ('markdown'|'json').`,
       inputSchema: UpdateDnsRecordInput.shape,
@@ -312,18 +335,18 @@ Args:
       },
     },
     async ({
-      domain_id,
-      record_id,
+      zone,
+      record,
       response_format,
       ...patch
     }: UpdateDnsRecordArgs) =>
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `Update DNS record ${record_id}`,
+        `Update DNS record ${record} in ${zone}`,
         () =>
           client.request(
             "PUT",
-            `/1/domain/${domain_id}/dns/record/${record_id}`,
+            `/2/zones/${encodeURIComponent(zone)}/records/${encodeURIComponent(record)}`,
             { body: patch },
           ),
       ),
@@ -333,11 +356,11 @@ Args:
     "infomaniak_delete_dns_record",
     {
       title: "Delete a DNS record",
-      description: `Delete a DNS record. DESTRUCTIVE.
+      description: `Delete a DNS record. DESTRUCTIVE. Endpoint: DELETE /2/zones/{zone}/records/{record}.
 
 Args:
-  - domain_id (number).
-  - record_id (number).
+  - zone (string): zone FQDN.
+  - record (string): record identifier.
   - confirm (boolean): must be true to actually delete; false returns a dry-run.
   - response_format ('markdown'|'json').`,
       inputSchema: DeleteDnsRecordInput.shape,
@@ -349,11 +372,12 @@ Args:
       },
     },
     async ({
-      domain_id,
-      record_id,
+      zone,
+      record,
       confirm,
       response_format,
     }: DeleteDnsRecordArgs) => {
+      const path = `/2/zones/${encodeURIComponent(zone)}/records/${encodeURIComponent(record)}`;
       if (!confirm) {
         return runTool(
           response_format ?? ResponseFormat.MARKDOWN,
@@ -362,22 +386,45 @@ Args:
             dry_run: true,
             message:
               "confirm=false: nothing deleted. Re-run with confirm=true to actually delete.",
-            request: {
-              method: "DELETE",
-              path: `/1/domain/${domain_id}/dns/record/${record_id}`,
-            },
+            request: { method: "DELETE", path },
           }),
         );
       }
       return runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `Delete DNS record ${record_id}`,
-        () =>
-          client.request(
-            "DELETE",
-            `/1/domain/${domain_id}/dns/record/${record_id}`,
-          ),
+        `Delete DNS record ${record}`,
+        () => client.request("DELETE", path),
       );
     },
+  );
+
+  server.registerTool(
+    "infomaniak_check_dns_record",
+    {
+      title: "Check a DNS record propagation/status",
+      description: `Check status/propagation of a DNS record. Endpoint: GET /2/zones/{zone}/records/{record}/check.
+
+Args:
+  - zone (string): zone FQDN.
+  - record (string): record identifier.
+  - response_format ('markdown'|'json').`,
+      inputSchema: CheckDnsRecordInput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ zone, record, response_format }: CheckDnsRecordArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Check DNS record ${record} in ${zone}`,
+        () =>
+          client.request(
+            "GET",
+            `/2/zones/${encodeURIComponent(zone)}/records/${encodeURIComponent(record)}/check`,
+          ),
+      ),
   );
 }

@@ -154,7 +154,7 @@ Examples:
         async () => {
           const env = await client.requestEnvelope<unknown[]>(
             "GET",
-            "/1/hosting",
+            "/1/web",
             {
               query: {
                 account_id: params.account_id,
@@ -193,7 +193,7 @@ Args:
         response_format ?? ResponseFormat.MARKDOWN,
         `Hosting ${hosting_id}`,
         () =>
-          client.request("GET", `/1/hosting/${hosting_id}`, {
+          client.request("GET", `/1/web/${hosting_id}`, {
             query: { with: relations },
           }),
       ),
@@ -223,7 +223,7 @@ Returns:
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
         `Sites on hosting ${hosting_id}`,
-        () => client.request("GET", `/1/hosting/${hosting_id}/site`),
+        () => client.request("GET", `/1/web/${hosting_id}/site`),
       ),
   );
 
@@ -250,7 +250,7 @@ Args:
         response_format ?? ResponseFormat.MARKDOWN,
         `Site ${site_id} on hosting ${hosting_id}`,
         () =>
-          client.request("GET", `/1/hosting/${hosting_id}/site/${site_id}`),
+          client.request("GET", `/1/web/${hosting_id}/site/${site_id}`),
       ),
   );
 
@@ -292,7 +292,7 @@ Error Handling:
         response_format ?? ResponseFormat.MARKDOWN,
         `Create site on hosting ${hosting_id}`,
         () =>
-          client.request("POST", `/1/hosting/${hosting_id}/site`, {
+          client.request("POST", `/1/web/${hosting_id}/site`, {
             body: { domain_id, directory, type },
           }),
       ),
@@ -337,7 +337,7 @@ Returns:
               "confirm=false: nothing deleted. Re-run with confirm=true to actually delete.",
             request: {
               method: "DELETE",
-              path: `/1/hosting/${hosting_id}/site/${site_id}`,
+              path: `/1/web/${hosting_id}/site/${site_id}`,
             },
           }),
         );
@@ -348,7 +348,7 @@ Returns:
         () =>
           client.request(
             "DELETE",
-            `/1/hosting/${hosting_id}/site/${site_id}`,
+            `/1/web/${hosting_id}/site/${site_id}`,
           ),
       );
     },
@@ -375,7 +375,7 @@ Args:
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
         `Databases on hosting ${hosting_id}`,
-        () => client.request("GET", `/1/hosting/${hosting_id}/database`),
+        () => client.request("GET", `/1/web/${hosting_id}/database`),
       ),
   );
 
@@ -414,7 +414,7 @@ Error Handling:
         response_format ?? ResponseFormat.MARKDOWN,
         `Create database on hosting ${hosting_id}`,
         () =>
-          client.request("POST", `/1/hosting/${hosting_id}/database`, {
+          client.request("POST", `/1/web/${hosting_id}/database`, {
             body: { name, user_name, password },
           }),
       ),
@@ -441,7 +441,7 @@ Args:
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
         `FTP accounts on hosting ${hosting_id}`,
-        () => client.request("GET", `/1/hosting/${hosting_id}/ftp_account`),
+        () => client.request("GET", `/1/web/${hosting_id}/ftp_account`),
       ),
   );
 
@@ -476,7 +476,7 @@ Args:
         response_format ?? ResponseFormat.MARKDOWN,
         `Create FTP account on hosting ${hosting_id}`,
         () =>
-          client.request("POST", `/1/hosting/${hosting_id}/ftp_account`, {
+          client.request("POST", `/1/web/${hosting_id}/ftp_account`, {
             body: { name, password, home_directory },
           }),
       ),

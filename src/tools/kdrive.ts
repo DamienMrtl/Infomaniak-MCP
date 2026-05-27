@@ -22,7 +22,7 @@ const FileId = z
   .number()
   .int()
   .positive()
-  .describe("Numeric file or directory ID.");
+  .describe("Numeric file or directory ID. Root is 1.");
 
 const ParentId = z
   .number()
@@ -31,8 +31,8 @@ const ParentId = z
   .default(1)
   .describe("Parent directory ID. Root is 1.");
 
-const ListDrivesInput = z.object({ response_format: ResponseFormatSchema }).strict();
-type ListDrivesArgs = z.infer<typeof ListDrivesInput>;
+const NoArgsInput = z.object({ response_format: ResponseFormatSchema }).strict();
+type NoArgsArgs = z.infer<typeof NoArgsInput>;
 
 const ListFilesInput = z
   .object({
@@ -40,7 +40,7 @@ const ListFilesInput = z
     parent_id: ParentId,
     order: z.enum(["asc", "desc"]).default("asc"),
     order_by: z
-      .enum(["type", "name", "size", "last_modified_at"])
+      .enum(["type", "name", "size", "last_modified_at", "created_at"])
       .default("name"),
     ...PaginationSchema,
     response_format: ResponseFormatSchema,
@@ -99,19 +99,41 @@ const ShareLinkInput = z
   .strict();
 type ShareLinkArgs = z.infer<typeof ShareLinkInput>;
 
+const ListDriveScopedInput = z
+  .object({
+    drive_id: DriveId,
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+type ListDriveScopedArgs = z.infer<typeof ListDriveScopedInput>;
+
+const FilesExistInput = z
+  .object({
+    drive_id: DriveId,
+    parent_id: ParentId,
+    names: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(1000)
+      .describe("File or directory names to check inside parent_id."),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+type FilesExistArgs = z.infer<typeof FilesExistInput>;
+
 export function register(server: McpServer, client: InfomaniakClient) {
   server.registerTool(
     "infomaniak_list_kdrives",
     {
       title: "List kDrives",
-      description: `List kDrives the user has access to.
+      description: `List kDrives the user has access to. Endpoint: GET /2/drive.
 
 Args:
   - response_format ('markdown'|'json').
 
 Returns:
   Envelope with array of { id, name, size, used_size, role, ... }.`,
-      inputSchema: ListDrivesInput.shape,
+      inputSchema: NoArgsInput.shape,
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -119,7 +141,7 @@ Returns:
         openWorldHint: true,
       },
     },
-    async ({ response_format }: ListDrivesArgs) =>
+    async ({ response_format }: NoArgsArgs) =>
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
         "kDrives",
@@ -128,16 +150,41 @@ Returns:
   );
 
   server.registerTool(
+    "infomaniak_get_kdrive",
+    {
+      title: "Get one kDrive",
+      description: `Get details for one kDrive. Endpoint: GET /2/drive/{drive_id}.
+
+Args:
+  - drive_id (number).
+  - response_format ('markdown'|'json').`,
+      inputSchema: ListDriveScopedInput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ drive_id, response_format }: ListDriveScopedArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `kDrive ${drive_id}`,
+        () => client.request("GET", `/2/drive/${drive_id}`),
+      ),
+  );
+
+  server.registerTool(
     "infomaniak_list_kdrive_files",
     {
       title: "List children of a kDrive directory",
-      description: `List the children of a directory on a kDrive.
+      description: `List the children of a directory on a kDrive. Endpoint: GET /3/drive/{drive_id}/files/{file_id}/files.
 
 Args:
   - drive_id (number).
   - parent_id (number): directory to list (default 1 = root).
   - order ('asc'|'desc'): default 'asc'.
-  - order_by ('type'|'name'|'size'|'last_modified_at'): default 'name'.
+  - order_by ('type'|'name'|'size'|'last_modified_at'|'created_at'): default 'name'.
   - page, per_page: pagination.
   - response_format ('markdown'|'json').
 
@@ -161,7 +208,7 @@ Returns:
         async () => {
           const env = await client.requestEnvelope<unknown[]>(
             "GET",
-            `/2/drive/${params.drive_id}/files/${parent_id}/files`,
+            `/3/drive/${params.drive_id}/files/${parent_id}/files`,
             {
               query: {
                 order: params.order,
@@ -181,7 +228,7 @@ Returns:
     "infomaniak_get_kdrive_file",
     {
       title: "Get metadata for one kDrive file/directory",
-      description: `Get metadata for a single file or directory on a kDrive.
+      description: `Get metadata for a single file or directory on a kDrive. Endpoint: GET /3/drive/{drive_id}/files/{file_id}.
 
 Args:
   - drive_id (number).
@@ -199,7 +246,63 @@ Args:
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
         `kDrive file ${file_id}`,
-        () => client.request("GET", `/2/drive/${drive_id}/files/${file_id}`),
+        () => client.request("GET", `/3/drive/${drive_id}/files/${file_id}`),
+      ),
+  );
+
+  server.registerTool(
+    "infomaniak_kdrive_files_exist",
+    {
+      title: "Check if files/directories exist in a kDrive directory",
+      description: `Check whether the given names already exist in a parent directory. Endpoint: POST /2/drive/{drive_id}/files/exists.
+
+Args:
+  - drive_id (number).
+  - parent_id (number, default 1).
+  - names (string[]): 1-1000 names to test.
+  - response_format ('markdown'|'json').`,
+      inputSchema: FilesExistInput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ drive_id, parent_id, names, response_format }: FilesExistArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Exist check on kDrive ${drive_id}`,
+        () =>
+          client.request("POST", `/2/drive/${drive_id}/files/exists`, {
+            body: { parent_id: parent_id ?? 1, names },
+          }),
+      ),
+  );
+
+  server.registerTool(
+    "infomaniak_kdrive_list_shared_with_me",
+    {
+      title: "List files shared with me on a kDrive",
+      description: `List files/directories shared with the authenticated user on a kDrive. Endpoint: GET /3/drive/{drive_id}/files/my_shared.
+
+Args:
+  - drive_id (number).
+  - response_format ('markdown'|'json').`,
+      inputSchema: ListDriveScopedInput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ drive_id, response_format }: ListDriveScopedArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Shared with me on kDrive ${drive_id}`,
+        () =>
+          client.request("GET", `/3/drive/${drive_id}/files/my_shared`),
       ),
   );
 
@@ -207,7 +310,7 @@ Args:
     "infomaniak_create_kdrive_directory",
     {
       title: "Create a directory on a kDrive",
-      description: `Create a directory on a kDrive.
+      description: `Create a directory on a kDrive. Endpoint: POST /2/drive/{drive_id}/files/{parent_id}/directory.
 
 Args:
   - drive_id (number).
@@ -247,7 +350,7 @@ Error Handling:
     "infomaniak_delete_kdrive_file",
     {
       title: "Trash a kDrive file/directory",
-      description: `Move a file or directory to the kDrive trash. DESTRUCTIVE (recoverable from the trash until purge).
+      description: `Move a file or directory to the kDrive trash. DESTRUCTIVE (recoverable from the trash until purge). Endpoint: DELETE /3/drive/{drive_id}/files/{file_id}.
 
 Args:
   - drive_id (number).
@@ -278,7 +381,7 @@ Args:
               "confirm=false: nothing trashed. Re-run with confirm=true to move to trash.",
             request: {
               method: "DELETE",
-              path: `/2/drive/${drive_id}/files/${file_id}`,
+              path: `/3/drive/${drive_id}/files/${file_id}`,
             },
           }),
         );
@@ -287,7 +390,7 @@ Args:
         response_format ?? ResponseFormat.MARKDOWN,
         `Trash kDrive file ${file_id}`,
         () =>
-          client.request("DELETE", `/2/drive/${drive_id}/files/${file_id}`),
+          client.request("DELETE", `/3/drive/${drive_id}/files/${file_id}`),
       );
     },
   );
@@ -296,7 +399,7 @@ Args:
     "infomaniak_share_kdrive_file",
     {
       title: "Create a public share link",
-      description: `Create a public share link for a file or directory on a kDrive.
+      description: `Create a public share link for a file or directory on a kDrive. Endpoint: POST /2/drive/{drive_id}/files/{file_id}/link.
 
 Args:
   - drive_id (number).

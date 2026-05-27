@@ -79,6 +79,18 @@ const CreateAliasInput = z
   .strict();
 type CreateAliasArgs = z.infer<typeof CreateAliasInput>;
 
+const UpdateMailboxInput = z
+  .object({
+    mail_hosting_id: MailHostingId,
+    mailbox_name: MailboxName,
+    password: z.string().min(8).optional(),
+    first_name: z.string().optional(),
+    last_name: z.string().optional(),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+type UpdateMailboxArgs = z.infer<typeof UpdateMailboxInput>;
+
 export function register(server: McpServer, client: InfomaniakClient) {
   server.registerTool(
     "infomaniak_list_mail_hostings",
@@ -284,6 +296,74 @@ Args:
           client.request(
             "GET",
             `/1/mail_hostings/${mail_hosting_id}/mailboxes/${encodeURIComponent(mailbox_name)}/aliases`,
+          ),
+      ),
+  );
+
+  server.registerTool(
+    "infomaniak_update_mailbox",
+    {
+      title: "Update a mailbox",
+      description: `Update a mailbox (password, first name, last name). Endpoint: PATCH /1/mail_hostings/{mail_hosting_id}/mailboxes/{mailbox_name}. Supply only the fields you want to change.
+
+Args:
+  - mail_hosting_id (number).
+  - mailbox_name (string): local part of the address.
+  - password (string, optional, 8+ chars).
+  - first_name (string, optional).
+  - last_name (string, optional).
+  - response_format ('markdown'|'json').`,
+      inputSchema: UpdateMailboxInput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({
+      mail_hosting_id,
+      mailbox_name,
+      response_format,
+      ...patch
+    }: UpdateMailboxArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Update mailbox ${mailbox_name}`,
+        () =>
+          client.request(
+            "PATCH",
+            `/1/mail_hostings/${mail_hosting_id}/mailboxes/${encodeURIComponent(mailbox_name)}`,
+            { body: patch },
+          ),
+      ),
+  );
+
+  server.registerTool(
+    "infomaniak_list_mail_hosting_users",
+    {
+      title: "List users on a Mail Hosting product",
+      description: `List users on a Mail Hosting product. Endpoint: GET /1/mail_hostings/{mail_hosting_id}/users.
+
+Args:
+  - mail_hosting_id (number).
+  - response_format ('markdown'|'json').`,
+      inputSchema: MailHostingScoped.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ mail_hosting_id, response_format }: MailHostingScopedArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Users on mail hosting ${mail_hosting_id}`,
+        () =>
+          client.request(
+            "GET",
+            `/1/mail_hostings/${mail_hosting_id}/users`,
           ),
       ),
   );
