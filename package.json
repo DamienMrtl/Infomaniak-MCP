@@ -1,10 +1,10 @@
 {
-  "name": "infomaniak-mcp",
-  "version": "0.1.0",
-  "description": "Model Context Protocol server exposing the Infomaniak public API (hosting, domains, kDrive, mail, AI Tools…) to MCP-compatible clients like Claude.",
+  "name": "infomaniak-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for the Infomaniak public API (hosting, domains, kDrive, mail, AI Tools, order catalogue).",
   "type": "module",
   "bin": {
-    "infomaniak-mcp": "dist/index.js"
+    "infomaniak-mcp-server": "dist/index.js"
   },
   "main": "dist/index.js",
   "files": [
@@ -14,15 +14,19 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
     "prepare": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "axios": "^1.7.9",
+    "express": "^4.21.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
