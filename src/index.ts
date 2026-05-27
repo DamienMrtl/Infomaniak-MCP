@@ -16,6 +16,7 @@ import express from "express";
 import { InfomaniakClient } from "./services/client.js";
 import { API_BASE_URL } from "./constants.js";
 import * as ai from "./tools/ai.js";
+import * as docs from "./tools/docs.js";
 import * as domain from "./tools/domain.js";
 import * as generic from "./tools/generic.js";
 import * as hosting from "./tools/hosting.js";
@@ -46,6 +47,7 @@ function buildServer(): McpServer {
     version: SERVER_VERSION,
   });
 
+  docs.register(server);
   generic.register(server, client);
   profile.register(server, client);
   products.register(server, client);
