@@ -21,25 +21,36 @@ const DomainId = z
 const ZoneSchema = z
   .string()
   .min(3)
+  .transform((s) => s.replace(/\.+$/, ""))
   .describe(
-    "DNS zone identifier. In the Infomaniak v2 API this is the FQDN of the zone (e.g. 'example.ch').",
+    "DNS zone FQDN, e.g. 'example.ch'. A trailing dot is stripped automatically.",
   );
 
-// Confirmed against developer.infomaniak.com (`/2/zones/{zone}/records`).
+// Verified against the official Terraform provider
+// (Infomaniak/terraform-provider-infomaniak: internal/apis/domain/models.go).
 const DnsRecordType = z.enum([
   "A",
   "AAAA",
-  "CNAME",
-  "MX",
-  "TXT",
-  "NS",
-  "SRV",
   "CAA",
-  "TLSA",
+  "CNAME",
+  "DNAME",
   "DS",
   "DNSKEY",
+  "HTTPS",
+  "MX",
+  "NS",
+  "SMIMEA",
+  "SRV",
   "SSHFP",
+  "TLSA",
+  "TXT",
 ]);
+
+const RecordId = z
+  .number()
+  .int()
+  .positive()
+  .describe("Numeric DNS record ID (int64).");
 
 const ListDomainsInput = z
   .object({
@@ -87,21 +98,19 @@ const CreateDnsRecordInput = z
       .string()
       .min(1)
       .describe("Sub-domain part. Use '@' for the apex, '*' for a wildcard."),
-    target: z.string().min(1).describe("Record value (IP, host, text...)."),
+    target: z
+      .string()
+      .min(1)
+      .describe(
+        "Record value in zone-file format. For MX/SRV records embed the priority before the host, e.g. '10 mail.example.ch' for MX, '0 5 5060 sip.example.ch' for SRV. For A/AAAA pass the IP, for CNAME/NS pass the FQDN, for TXT pass the quoted text.",
+      ),
     ttl: z
       .number()
       .int()
       .min(60)
       .max(86_400)
-      .optional()
-      .describe("TTL in seconds (60-86400)."),
-    priority: z
-      .number()
-      .int()
-      .min(0)
-      .max(65_535)
-      .optional()
-      .describe("Priority (MX/SRV only)."),
+      .default(3600)
+      .describe("TTL in seconds (60-86400, default 3600)."),
     response_format: ResponseFormatSchema,
   })
   .strict();
@@ -110,12 +119,11 @@ type CreateDnsRecordArgs = z.infer<typeof CreateDnsRecordInput>;
 const UpdateDnsRecordInput = z
   .object({
     zone: ZoneSchema,
-    record: z.string().min(1).describe("Record identifier."),
-    type: DnsRecordType.optional(),
-    source: z.string().min(1).optional(),
-    target: z.string().min(1).optional(),
-    ttl: z.number().int().min(60).max(86_400).optional(),
-    priority: z.number().int().min(0).max(65_535).optional(),
+    record_id: RecordId,
+    type: DnsRecordType,
+    source: z.string().min(1),
+    target: z.string().min(1),
+    ttl: z.number().int().min(60).max(86_400).default(3600),
     response_format: ResponseFormatSchema,
   })
   .strict();
@@ -124,7 +132,7 @@ type UpdateDnsRecordArgs = z.infer<typeof UpdateDnsRecordInput>;
 const DeleteDnsRecordInput = z
   .object({
     zone: ZoneSchema,
-    record: z.string().min(1),
+    record_id: RecordId,
     confirm: z
       .boolean()
       .default(false)
@@ -137,11 +145,35 @@ type DeleteDnsRecordArgs = z.infer<typeof DeleteDnsRecordInput>;
 const CheckDnsRecordInput = z
   .object({
     zone: ZoneSchema,
-    record: z.string().min(1),
+    record_id: RecordId,
     response_format: ResponseFormatSchema,
   })
   .strict();
 type CheckDnsRecordArgs = z.infer<typeof CheckDnsRecordInput>;
+
+const ZoneOnlyInput = z
+  .object({
+    zone: ZoneSchema,
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+type ZoneOnlyArgs = z.infer<typeof ZoneOnlyInput>;
+
+const CreateZoneInput = z
+  .object({
+    zone: ZoneSchema.describe(
+      "FQDN of the new zone (e.g. 'example.ch'). The domain must already be in the account.",
+    ),
+    confirm: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Must be true to actually create; false returns a dry-run preview.",
+      ),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+type CreateZoneArgs = z.infer<typeof CreateZoneInput>;
 
 export function register(server: McpServer, client: InfomaniakClient) {
   server.registerTool(
@@ -273,19 +305,132 @@ Args:
   );
 
   server.registerTool(
+    "infomaniak_get_zone",
+    {
+      title: "Get one DNS zone",
+      description: `Get a DNS zone by FQDN. Endpoint: GET /2/zones/{zone}.
+
+Args:
+  - zone (string): zone FQDN (trailing dot stripped automatically).
+  - response_format ('markdown'|'json').
+
+Returns:
+  Envelope with { id, fqdn, dnssec, nameservers, records?, cluster_records?, ... }.`,
+      inputSchema: ZoneOnlyInput.shape,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ zone, response_format }: ZoneOnlyArgs) =>
+      runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Zone ${zone}`,
+        () => client.request("GET", `/2/zones/${encodeURIComponent(zone)}`),
+      ),
+  );
+
+  server.registerTool(
+    "infomaniak_create_zone",
+    {
+      title: "Create a DNS zone",
+      description: `Create a DNS zone for an owned domain. Endpoint: POST /2/zones/{zone}.
+
+Args:
+  - zone (string): FQDN of the new zone (the domain must already be on the account).
+  - confirm (boolean): must be true to actually create; false returns a dry-run.
+  - response_format ('markdown'|'json').`,
+      inputSchema: CreateZoneInput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ zone, confirm, response_format }: CreateZoneArgs) => {
+      const path = `/2/zones/${encodeURIComponent(zone)}`;
+      if (!confirm) {
+        return runTool(
+          response_format ?? ResponseFormat.MARKDOWN,
+          "Dry-run create zone",
+          async () => ({
+            dry_run: true,
+            message:
+              "confirm=false: nothing created. Re-run with confirm=true.",
+            request: { method: "POST", path },
+          }),
+        );
+      }
+      return runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Create zone ${zone}`,
+        () => client.request("POST", path),
+      );
+    },
+  );
+
+  server.registerTool(
+    "infomaniak_delete_zone",
+    {
+      title: "Delete a DNS zone",
+      description: `Delete a DNS zone. DESTRUCTIVE. Endpoint: DELETE /2/zones/{zone}.
+
+Args:
+  - zone (string).
+  - confirm (boolean): must be true to actually delete.
+  - response_format ('markdown'|'json').`,
+      inputSchema: CreateZoneInput.shape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ zone, confirm, response_format }: CreateZoneArgs) => {
+      const path = `/2/zones/${encodeURIComponent(zone)}`;
+      if (!confirm) {
+        return runTool(
+          response_format ?? ResponseFormat.MARKDOWN,
+          "Dry-run delete zone",
+          async () => ({
+            dry_run: true,
+            message:
+              "confirm=false: nothing deleted. Re-run with confirm=true.",
+            request: { method: "DELETE", path },
+          }),
+        );
+      }
+      return runTool(
+        response_format ?? ResponseFormat.MARKDOWN,
+        `Delete zone ${zone}`,
+        () => client.request("DELETE", path),
+      );
+    },
+  );
+
+  server.registerTool(
     "infomaniak_create_dns_record",
     {
       title: "Create a DNS record",
       description: `Create a DNS record on a zone. Endpoint: POST /2/zones/{zone}/records.
 
+Request body (verified against Infomaniak/terraform-provider-infomaniak):
+  { "type": "...", "source": "...", "target": "...", "ttl": 3600 }
+
 Args:
   - zone (string): zone FQDN, e.g. 'example.ch'.
-  - type ('A'|'AAAA'|'CNAME'|'MX'|'TXT'|'NS'|'SRV'|'CAA'|'TLSA'|'DS'|'DNSKEY'|'SSHFP').
+  - type: 'A'|'AAAA'|'CAA'|'CNAME'|'DNAME'|'DS'|'DNSKEY'|'HTTPS'|'MX'|'NS'|'SMIMEA'|'SRV'|'SSHFP'|'TLSA'|'TXT'.
   - source (string): sub-domain part. '@' for apex, '*' for wildcard.
-  - target (string): record value.
-  - ttl (number, optional): seconds, 60-86400.
-  - priority (number, optional): MX/SRV only.
-  - response_format ('markdown'|'json').`,
+  - target (string): zone-file value. For MX prefix with priority ("10 mail.example.ch"), for SRV with priority/weight/port ("0 5 5060 sip.example.ch"), for A/AAAA the bare IP, for CNAME/NS the FQDN, for TXT the quoted text.
+  - ttl (number, optional, default 3600): seconds, 60-86400.
+  - response_format ('markdown'|'json').
+
+Returns:
+  Envelope with { id, type, source, target, ttl, ... }.`,
       inputSchema: CreateDnsRecordInput.shape,
       annotations: {
         readOnlyHint: false,
@@ -300,7 +445,6 @@ Args:
       source,
       target,
       ttl,
-      priority,
       response_format,
     }: CreateDnsRecordArgs) =>
       runTool(
@@ -310,7 +454,7 @@ Args:
           client.request(
             "POST",
             `/2/zones/${encodeURIComponent(zone)}/records`,
-            { body: { type, source, target, ttl, priority } },
+            { body: { type, source, target, ttl } },
           ),
       ),
   );
@@ -319,12 +463,14 @@ Args:
     "infomaniak_update_dns_record",
     {
       title: "Update a DNS record",
-      description: `Update an existing DNS record. Endpoint: PUT /2/zones/{zone}/records/{record}. Supply only the fields to change.
+      description: `Update an existing DNS record. Endpoint: PUT /2/zones/{zone}/records/{record_id}.
+
+Same body as create: { type, source, target, ttl }. All four fields must be supplied.
 
 Args:
-  - zone (string): zone FQDN.
-  - record (string): record identifier (returned by list_dns_records).
-  - type, source, target, ttl, priority: optional patches.
+  - zone (string).
+  - record_id (number).
+  - type, source, target, ttl: same as create.
   - response_format ('markdown'|'json').`,
       inputSchema: UpdateDnsRecordInput.shape,
       annotations: {
@@ -336,18 +482,21 @@ Args:
     },
     async ({
       zone,
-      record,
+      record_id,
+      type,
+      source,
+      target,
+      ttl,
       response_format,
-      ...patch
     }: UpdateDnsRecordArgs) =>
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `Update DNS record ${record} in ${zone}`,
+        `Update DNS record ${record_id} in ${zone}`,
         () =>
           client.request(
             "PUT",
-            `/2/zones/${encodeURIComponent(zone)}/records/${encodeURIComponent(record)}`,
-            { body: patch },
+            `/2/zones/${encodeURIComponent(zone)}/records/${record_id}`,
+            { body: { type, source, target, ttl } },
           ),
       ),
   );
@@ -356,11 +505,11 @@ Args:
     "infomaniak_delete_dns_record",
     {
       title: "Delete a DNS record",
-      description: `Delete a DNS record. DESTRUCTIVE. Endpoint: DELETE /2/zones/{zone}/records/{record}.
+      description: `Delete a DNS record. DESTRUCTIVE. Endpoint: DELETE /2/zones/{zone}/records/{record_id}.
 
 Args:
-  - zone (string): zone FQDN.
-  - record (string): record identifier.
+  - zone (string).
+  - record_id (number).
   - confirm (boolean): must be true to actually delete; false returns a dry-run.
   - response_format ('markdown'|'json').`,
       inputSchema: DeleteDnsRecordInput.shape,
@@ -373,11 +522,11 @@ Args:
     },
     async ({
       zone,
-      record,
+      record_id,
       confirm,
       response_format,
     }: DeleteDnsRecordArgs) => {
-      const path = `/2/zones/${encodeURIComponent(zone)}/records/${encodeURIComponent(record)}`;
+      const path = `/2/zones/${encodeURIComponent(zone)}/records/${record_id}`;
       if (!confirm) {
         return runTool(
           response_format ?? ResponseFormat.MARKDOWN,
@@ -392,7 +541,7 @@ Args:
       }
       return runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `Delete DNS record ${record}`,
+        `Delete DNS record ${record_id}`,
         () => client.request("DELETE", path),
       );
     },
@@ -402,11 +551,11 @@ Args:
     "infomaniak_check_dns_record",
     {
       title: "Check a DNS record propagation/status",
-      description: `Check status/propagation of a DNS record. Endpoint: GET /2/zones/{zone}/records/{record}/check.
+      description: `Check status/propagation of a DNS record. Endpoint: GET /2/zones/{zone}/records/{record_id}/check.
 
 Args:
-  - zone (string): zone FQDN.
-  - record (string): record identifier.
+  - zone (string).
+  - record_id (number).
   - response_format ('markdown'|'json').`,
       inputSchema: CheckDnsRecordInput.shape,
       annotations: {
@@ -416,14 +565,14 @@ Args:
         openWorldHint: true,
       },
     },
-    async ({ zone, record, response_format }: CheckDnsRecordArgs) =>
+    async ({ zone, record_id, response_format }: CheckDnsRecordArgs) =>
       runTool(
         response_format ?? ResponseFormat.MARKDOWN,
-        `Check DNS record ${record} in ${zone}`,
+        `Check DNS record ${record_id} in ${zone}`,
         () =>
           client.request(
             "GET",
-            `/2/zones/${encodeURIComponent(zone)}/records/${encodeURIComponent(record)}/check`,
+            `/2/zones/${encodeURIComponent(zone)}/records/${record_id}/check`,
           ),
       ),
   );
