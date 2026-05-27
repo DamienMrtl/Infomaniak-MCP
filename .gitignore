@@ -1,5 +1,7 @@
 node_modules/
 dist/
+bundle/
+*.mcpb
 *.log
 .env
 .env.local

@@ -16,7 +16,8 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist bundle *.mcpb",
+    "mcpb:pack": "npm run build && rm -rf bundle && mkdir bundle && cp -r dist manifest.json package.json package-lock.json .env.example bundle/ && cd bundle && npm ci --omit=dev --silent && cd .. && npx --yes @anthropic-ai/mcpb@latest pack bundle infomaniak-mcp-server-$npm_package_version.mcpb",
     "prepare": "npm run build"
   },
   "dependencies": {

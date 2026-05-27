@@ -1,0 +1,68 @@
+{
+  "manifest_version": "0.3",
+  "name": "infomaniak-mcp-server",
+  "display_name": "Infomaniak",
+  "version": "1.0.0",
+  "description": "Drive your Infomaniak account from Claude: hosting, domains, DNS, kDrive, mail and AI Tools.",
+  "long_description": "MCP server wrapping the Infomaniak public API. Exposes 40+ tools so Claude can list/manage Web Hosting plans, sites, FTP and MySQL databases, domains and DNS records, kDrive files, Mail Hosting mailboxes and aliases, and AI Tools chat completions. Destructive operations (delete_*, create_order) require an explicit confirm=true flag. Authenticates with a Personal API Token created at https://manager.infomaniak.com.",
+  "author": {
+    "name": "Infomaniak MCP contributors"
+  },
+  "homepage": "https://developer.infomaniak.com",
+  "documentation": "https://developer.infomaniak.com",
+  "keywords": [
+    "infomaniak",
+    "hosting",
+    "domain",
+    "dns",
+    "kdrive",
+    "mail",
+    "swiss",
+    "cloud"
+  ],
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "INFOMANIAK_API_TOKEN": "${user_config.api_token}",
+        "INFOMANIAK_API_BASE_URL": "${user_config.api_base_url}",
+        "INFOMANIAK_AI_PRODUCT_ID": "${user_config.ai_product_id}"
+      }
+    }
+  },
+  "user_config": {
+    "api_token": {
+      "type": "string",
+      "title": "Infomaniak API Token",
+      "description": "Personal API Token created at https://manager.infomaniak.com → API Token Manager. Scope it to the products you want Claude to manage.",
+      "sensitive": true,
+      "required": true
+    },
+    "api_base_url": {
+      "type": "string",
+      "title": "API base URL (optional)",
+      "description": "Override the Infomaniak API base URL. Leave empty to use https://api.infomaniak.com.",
+      "default": "",
+      "required": false
+    },
+    "ai_product_id": {
+      "type": "string",
+      "title": "Default AI Tools product UUID (optional)",
+      "description": "Default product_id used by infomaniak_ai_chat / infomaniak_ai_list_models when none is supplied at call time.",
+      "default": "",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18"
+    }
+  },
+  "tools_generated": false
+}

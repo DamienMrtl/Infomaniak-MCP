@@ -1,0 +1,78 @@
+<!--
+  Infomaniak MCP server — evaluation suite (Phase 4 of the mcp-builder skill).
+
+  How to use:
+  1. Run the MCP server against YOUR own Infomaniak account (with INFOMANIAK_API_TOKEN exported).
+  2. Each <answer> below is a placeholder that an LLM driving this MCP must derive
+     from your actual account data. The questions are designed to be:
+       - READ-ONLY and IDEMPOTENT (no destructive tool use required)
+       - STABLE (the answer doesn't drift from one minute to the next, modulo
+         actions YOU perform on the account)
+       - COMPLEX (each one chains several tool calls / pages)
+       - VERIFIABLE via direct string comparison
+  3. Replace each placeholder with the ground-truth value for your account, then
+     drive the eval via the skill's evaluation.py harness:
+
+         python /mnt/skills/examples/mcp-builder/scripts/evaluation.py \
+           -t stdio -c node -a dist/index.js \
+           -e INFOMANIAK_API_TOKEN=$INFOMANIAK_API_TOKEN \
+           -o eval_report.md \
+           evaluation.xml
+
+  Answer-format conventions (declared inside each question):
+    - "Respond with the integer." or "the string." for numbers/strings
+    - "Use YYYY-MM-DD." for dates
+    - "Respond with the FQDN." for domains
+    - "Respond True or False." for booleans
+-->
+<evaluation>
+  <qa_pair>
+    <question>Look up the e-mail address registered on the authenticated Infomaniak profile. Respond with the e-mail address only, lower-cased.</question>
+    <answer>REPLACE_WITH_YOUR_PROFILE_EMAIL</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Among every Infomaniak account (Organisation) the authenticated user can access, find the account that owns the largest number of Web Hosting products. Respond with that account's "name" field, exactly as returned by the API.</question>
+    <answer>REPLACE_WITH_ACCOUNT_NAME</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Of all the domains owned across every accessible account, identify the one whose expiry date is the soonest in the future (i.e. the next domain that needs renewing). Respond with its FQDN only.</question>
+    <answer>REPLACE_WITH_DOMAIN_FQDN</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Pick any Web Hosting product owned by the user. Count the total number of MX-type DNS records served by every domain that has at least one site (vhost) attached to that hosting. Respond with the integer count.</question>
+    <answer>REPLACE_WITH_MX_RECORD_COUNT</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Find the Web Hosting plan that hosts the largest number of distinct sites (vhosts). Respond with its numeric hosting_id.</question>
+    <answer>REPLACE_WITH_HOSTING_ID</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Among every kDrive the user can access, identify the one with the highest used-storage ratio (used_size / size). Respond with the kDrive's "name" field exactly as returned.</question>
+    <answer>REPLACE_WITH_KDRIVE_NAME</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Browse the root of the user's primary kDrive (the one with the largest "size") and identify the immediate child whose "last_modified_at" timestamp is the most recent. Respond with that file or folder's "name", exactly as returned.</question>
+    <answer>REPLACE_WITH_FILE_OR_FOLDER_NAME</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>Across every Mail Hosting product the user can access, find the mailbox whose local part (before the @) sorts earliest alphabetically. Respond with that full address (local@domain) lower-cased.</question>
+    <answer>REPLACE_WITH_MAILBOX_ADDRESS</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>List the AI Tools products available to the user. Among them, find the product that exposes the most distinct models via the OpenAI-compatible /models endpoint. Respond with the integer count of models.</question>
+    <answer>REPLACE_WITH_MODEL_COUNT</answer>
+  </qa_pair>
+
+  <qa_pair>
+    <question>In the Infomaniak catalogue, restrict to products with service_name 'hosting' and identify the cheapest hosting plan for a 12-month commitment (annual price, any currency the API exposes by default). Respond with that catalogue product's slug or "name" field, exactly as returned.</question>
+    <answer>REPLACE_WITH_CATALOGUE_PRODUCT_NAME</answer>
+  </qa_pair>
+</evaluation>
